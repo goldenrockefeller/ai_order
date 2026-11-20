@@ -125,8 +125,29 @@ class VotingCorrectnessTests(TestCase):
         self.assertEqual(result.value, Order("1001", "John Davis", "OH", 74210))
         self.assertTrue(result.disagreement)
         self.assertEqual(len(model.calls), 3)
-        self.assertEqual(model.calls[0], model.calls[1])
-        self.assertEqual(model.calls[1], model.calls[2])
+        self.assertEqual(len({call[0]["content"] for call in model.calls}), 3)
+        self.assertEqual(model.calls[0][1], model.calls[1][1])
+        self.assertEqual(model.calls[1][1], model.calls[2][1])
+
+    def test_query_agent_uses_one_curated_prompt_per_vote(self):
+        model = _SequenceModel((QUERY_A, QUERY_A, QUERY_A))
+
+        result = QueryAgent(model, attempts=3, quorum=2).interpret_vote(
+            "Ohio orders over $500"
+        )
+
+        self.assertIsNotNone(result.value)
+        self.assertEqual(len({call[0]["content"] for call in model.calls}), 3)
+        self.assertEqual(model.calls[0][1], model.calls[1][1])
+        self.assertEqual(model.calls[1][1], model.calls[2][1])
+
+    def test_agents_reject_more_votes_than_curated_prompt_variants(self):
+        model = _SequenceModel(())
+
+        with self.assertRaisesRegex(ValueError, "curated order prompt variants"):
+            OrderStructureAgent(model, attempts=6, quorum=1)
+        with self.assertRaisesRegex(ValueError, "curated query prompt variants"):
+            QueryAgent(model, attempts=6, quorum=1)
 
     def test_query_agent_rejects_a_b_c_after_normalization(self):
         model = _SequenceModel((QUERY_A, QUERY_B, QUERY_C))

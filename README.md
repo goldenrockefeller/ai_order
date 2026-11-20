@@ -113,6 +113,11 @@ for both agents with, for example:
 .\.venv\Scripts\python.exe main.py --attempts 3 --quorum 2
 ```
 
+For quorum configurations, each vote uses a different fixed, curated system
+prompt with different examples. Model responses are still strictly normalized
+before whole-record or whole-filter voting. Up to five prompt variants are
+available for each agent, keeping repeated runs reproducible at temperature 0.
+
 Run the small deterministic labeled comparison (no API key or server needed):
 
 ```powershell
