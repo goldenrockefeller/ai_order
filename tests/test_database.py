@@ -10,14 +10,26 @@ from database import (
     insert_order,
     query_orders,
 )
+from tests.fixtures.labeled_orders import LABELED_ORDERS
 
 
 class DatabaseCorrectnessTests(TestCase):
     def setUp(self):
-        self.connection = create_database()
+        self.connection = create_database(LABELED_ORDERS)
 
     def tearDown(self):
         self.connection.close()
+
+    def test_database_is_empty_without_explicit_orders(self):
+        empty_connection = create_database()
+        try:
+            matches = query_orders(
+                empty_connection, OrderFilter("OH", 0, "gte")
+            )
+        finally:
+            empty_connection.close()
+
+        self.assertEqual(matches, [])
 
     def test_oh_orders_over_500_dollars(self):
         matches = query_orders(

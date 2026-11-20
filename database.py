@@ -43,15 +43,6 @@ class OrderFilter:
             raise ValueError("operator must be 'gt' or 'gte'")
 
 
-SEED_ORDERS: tuple[Order, ...] = (
-    Order("1001", "John Davis", "OH", 74210),
-    Order("1002", "Sarah Liu", "TX", 15655),
-    Order("1003", "Mike Turner", "OH", 129999),
-    Order("1004", "Rachel Kim", "WA", 8950),
-    Order("1005", "Chris Myers", "OH", 51200),
-)
-
-
 def dollars_to_cents(amount: str | Decimal | int | float) -> int:
     """Convert a dollar amount to cents without binary floating-point math.
 
@@ -88,9 +79,9 @@ def dollars_to_cents(amount: str | Decimal | int | float) -> int:
 
 
 def create_database(
-    orders: Sequence[Order] = SEED_ORDERS,
+    orders: Sequence[Order] = (),
 ) -> sqlite3.Connection:
-    """Create a new in-memory order database and insert ``orders``."""
+    """Create an empty in-memory database and insert explicit ``orders``."""
 
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
@@ -283,7 +274,6 @@ def query_by_filter(
 __all__ = [
     "Order",
     "OrderFilter",
-    "SEED_ORDERS",
     "create_database",
     "dollars_to_cents",
     "insert_order",

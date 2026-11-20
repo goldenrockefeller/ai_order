@@ -22,12 +22,16 @@ Grounding and field validation
 Normalization (state code and integer cents)
     |
     v
+Whole-record quorum vote
+    |
+    v
 SQLite orders
     |
     v
 Bound-parameter query compiler -> clean JSON
 
-Natural-language request -> Query Agent -> typed filter (never SQL) -> SQLite
+Natural-language request -> Query Agent -> normalized whole-filter quorum vote
+                         -> typed filter (never SQL) -> SQLite
 ```
 
 The models only extract fields and classify query meaning. Python validates the
@@ -40,6 +44,13 @@ requests in the same invocation do not refetch or re-extract. The `QueryAgent`
 returns `logic: all|any` plus typed field/operator/value conditions. Python
 parses field-specific values at execution time and combines fixed SQL fragments
 with bound parameters; the model never supplies SQL.
+
+Both agents use the same sequential quorum function. Each response must pass
+the existing normalization boundary before it can vote, and agreement is exact
+equality of the entire immutable `Order` or `QueryFilter`. Invalid responses
+and model failures are rejected votes; the configured quorum is never reduced.
+Order no-quorum skips that source record and marks every snapshot result
+incomplete. Query no-quorum rejects the request before the database call.
 
 ## Requirements
 
@@ -70,6 +81,10 @@ Start the dummy customer API in the first terminal:
 .\.venv\Scripts\python.exe dummy_customer_api.py
 ```
 
+The dummy API explicitly serves `fixtures/raw_orders.py`; production database
+creation remains empty unless extracted orders are supplied. Normalized labels
+used by automated tests live separately under `tests/fixtures/`.
+
 Run the agent in a second terminal:
 
 ```powershell
@@ -77,7 +92,7 @@ Run the agent in a second terminal:
 ```
 
 With no arguments, the agent runs the sample Ohio/over-$500 request. It fetches
-and validates the raw orders once, makes one structured model call per order,
+and validates the raw orders once, makes one structured vote per order,
 stores the valid records, and prints the matching records as JSON. If any order
 cannot be extracted, the remaining records are still queried and the output
 contains `"incomplete": true` and `"failedExtractions"`.
@@ -90,6 +105,23 @@ snapshot:
   "Ohio orders over $500" `
   "Orders for Sarah or shipped to Washington"
 ```
+
+The default remains 1-of-1. Configure the same explicit vote count and quorum
+for both agents with, for example:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --attempts 3 --quorum 2
+```
+
+Run the small deterministic labeled comparison (no API key or server needed):
+
+```powershell
+.\.venv\Scripts\python.exe voting_demo.py
+```
+
+It runs the same order and query cases under 1-of-1, 2-of-3, and 4-of-5 and
+reports accepted labels, skipped/rejected labels, disagreements, rejected vote
+counts, and monotonic elapsed time for the sequential model-call boundaries.
 
 ## Test
 

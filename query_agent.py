@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.runnables import Runnable
 from order_extraction import MODEL_NAME
+from voting import NoQuorumError, VotingResult, quorum_vote, validate_voting_config
 
 
 logger = logging.getLogger(__name__)
@@ -111,9 +112,12 @@ class UnsupportedQueryError(ValueError):
     """Raised when the model reports intent outside the filter contract."""
 
 
-def create_openrouter_query_agent() -> "QueryAgent":
+def create_openrouter_query_agent(
+    *, attempts: int = 1, quorum: int = 1
+) -> "QueryAgent":
     """Build the production LangChain query agent."""
 
+    validate_voting_config(attempts=attempts, quorum=quorum)
     try:
         from langchain_openrouter import ChatOpenRouter
     except ImportError as error:  # pragma: no cover - depends on local setup
@@ -143,7 +147,11 @@ def create_openrouter_query_agent() -> "QueryAgent":
             "Could not configure the OpenRouter model; ensure "
             "OPENROUTER_API_KEY is set"
         ) from error
-    return QueryAgent(structured_model)
+    return QueryAgent(
+        structured_model,
+        attempts=attempts,
+        quorum=quorum,
+    )
 
 
 class QueryAgent:
@@ -152,15 +160,52 @@ class QueryAgent:
     def __init__(
         self,
         structured_model: Runnable[LanguageModelInput, dict[str, Any]],
+        *,
+        attempts: int = 1,
+        quorum: int = 1,
     ) -> None:
+        validate_voting_config(attempts=attempts, quorum=quorum)
         self._model = structured_model
+        self._attempts = attempts
+        self._quorum = quorum
 
     def interpret(self, request: str) -> QueryFilter:
+        result = self.interpret_vote(request)
+        if result.value is not None:
+            return result.value
+        if result.attempts == 1 and result.last_error is not None:
+            raise result.last_error
+        raise NoQuorumError(
+            "query interpretation did not reach quorum "
+            f"({result.quorum} required from {result.attempts} attempts)"
+        )
+
+    def interpret_vote(self, request: str) -> VotingResult[QueryFilter]:
+        """Run configured votes after applying the existing query boundary."""
+
         if not isinstance(request, str):
             raise TypeError("request must be a string")
         if not request.strip():
             raise ValueError("request must not be empty")
 
+        result = quorum_vote(
+            lambda: self._interpret_once(request),
+            attempts=self._attempts,
+            quorum=self._quorum,
+            label="query interpretation",
+        )
+        logger.info(
+            "Query interpretation vote complete: outcome=%s valid_votes=%d "
+            "rejected_votes=%d disagreement=%s duration_ms=%.1f",
+            "accepted" if result.value is not None else "no_quorum",
+            result.valid_votes,
+            result.rejected_votes,
+            result.disagreement,
+            result.elapsed_seconds * 1000,
+        )
+        return result
+
+    def _interpret_once(self, request: str) -> QueryFilter:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -171,21 +216,8 @@ class QueryAgent:
         try:
             output = self._model.invoke(messages)
         except Exception as error:
-            logger.error("Query model failed: %s", error)
             raise RuntimeError(f"Query model failed: {error}") from error
-
-        try:
-            query_filter = normalize_query_output(output)
-        except (TypeError, ValueError) as error:
-            logger.error("Query output rejected: %s", error)
-            raise
-
-        logger.info(
-            "Query interpreted: logic=%s conditions=%d",
-            query_filter.logic,
-            len(query_filter.conditions),
-        )
-        return query_filter
+        return normalize_query_output(output)
 
 
 def _require_keys(

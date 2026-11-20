@@ -6,7 +6,7 @@ from unittest import TestCase
 from unittest.mock import Mock
 from urllib.error import URLError
 
-from sample_orders import ORDERS
+from fixtures.raw_orders import RAW_ORDERS as ORDERS
 from validated_raw_orders import (
     DEFAULT_API_URL,
     fetch_validated_raw_orders,

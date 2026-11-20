@@ -4,6 +4,7 @@ source =
     order_extraction
     query_agent
     validated_raw_orders
+    voting
 
 [report]
 show_missing = True

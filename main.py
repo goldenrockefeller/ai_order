@@ -177,6 +177,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         nargs="*",
         help="Natural-language requests; quote each multi-word request.",
     )
+    parser.add_argument(
+        "--attempts",
+        type=int,
+        default=1,
+        help="Independent model votes per order and query (default: 1).",
+    )
+    parser.add_argument(
+        "--quorum",
+        type=int,
+        default=1,
+        help="Matching normalized votes required (default: 1).",
+    )
     arguments = parser.parse_args(argv)
     requests = arguments.requests or [DEFAULT_REQUEST]
 
@@ -186,8 +198,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         results = run_pipeline(
             requests,
-            order_agent=create_openrouter_order_agent(),
-            query_agent=create_openrouter_query_agent(),
+            order_agent=create_openrouter_order_agent(
+                attempts=arguments.attempts,
+                quorum=arguments.quorum,
+            ),
+            query_agent=create_openrouter_query_agent(
+                attempts=arguments.attempts,
+                quorum=arguments.quorum,
+            ),
             fetch_orders=lambda: fetch_validated_raw_orders(DEFAULT_API_URL),
         )
     except (

@@ -4,12 +4,12 @@ import os
 from unittest import TestCase
 from unittest.mock import patch
 
-from database import Order
 from order_extraction import (
     OrderStructureAgent,
     create_openrouter_order_agent,
 )
-from sample_orders import ORDERS
+from fixtures.raw_orders import RAW_ORDERS as ORDERS
+from tests.fixtures.labeled_orders import LABELED_ORDERS
 
 
 LABELED_OUTPUTS = {
@@ -44,15 +44,6 @@ LABELED_OUTPUTS = {
         "total": "$512.00",
     },
 }
-
-EXPECTED_ORDERS = [
-    Order("1001", "John Davis", "OH", 74210),
-    Order("1002", "Sarah Liu", "TX", 15655),
-    Order("1003", "Mike Turner", "OH", 129999),
-    Order("1004", "Rachel Kim", "WA", 8950),
-    Order("1005", "Chris Myers", "OH", 51200),
-]
-
 
 class _LabeledModel:
     def __init__(self):
@@ -89,7 +80,7 @@ class OrderStructureCorrectnessTests(TestCase):
 
         actual = [agent.extract(raw_order) for raw_order in ORDERS]
 
-        self.assertEqual(actual, EXPECTED_ORDERS)
+        self.assertEqual(actual, list(LABELED_ORDERS))
         self.assertEqual(len(model.calls), 5)
 
     def test_missing_total_is_rejected_after_model_returns_null(self):

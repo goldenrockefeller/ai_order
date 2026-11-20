@@ -2,7 +2,7 @@
 from flask import Flask, request, jsonify
 import random
 
-from sample_orders import ORDERS
+from fixtures.raw_orders import RAW_ORDERS
 
 app = Flask(__name__)
 
@@ -13,8 +13,8 @@ def get_orders():
     Returns orders as messy text. In real life, customers
     would have unpredictable formatting. The AI must parse it.
     """
-    limit = request.args.get("limit", default=len(ORDERS), type=int)
-    sample = random.sample(ORDERS, min(limit, len(ORDERS)))
+    limit = request.args.get("limit", default=len(RAW_ORDERS), type=int)
+    sample = random.sample(RAW_ORDERS, min(limit, len(RAW_ORDERS)))
 
     return jsonify({
         "status": "ok",
@@ -27,7 +27,7 @@ def get_order_by_id(order_id):
     """
     Fetch a single order by scanning the text.
     """
-    for text in ORDERS:
+    for text in RAW_ORDERS:
         if order_id in text:
             return jsonify({
                 "status": "ok",

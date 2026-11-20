@@ -1,6 +1,6 @@
-"""Shared labeled source records for the dummy API and offline tests."""
+"""Unstructured orders served only by the local dummy customer API."""
 
-ORDERS = [
+RAW_ORDERS = [
     "Order 1001: Buyer=John Davis, Location=Columbus, OH, Total=$742.10, Items: laptop, hdmi cable",
     "Order 1002: Buyer=Sarah Liu, Location=Austin, TX, Total=$156.55, Items: headphones",
     "Order 1003: Buyer=Mike Turner, Location=Cleveland, OH, Total=$1299.99, Items: gaming pc, mouse",

@@ -10,13 +10,13 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from collections.abc import Mapping
 from typing import Any, cast
 
 from database import Order, dollars_to_cents
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.runnables import Runnable
+from voting import NoQuorumError, VotingResult, quorum_vote, validate_voting_config
 
 
 MODEL_NAME = "openai/gpt-oss-120b:exacto"
@@ -72,7 +72,9 @@ Output: {"order_id":"B-9","buyer":"Omar Reed","state":"ID","total":null}
 """
 
 
-def create_openrouter_order_agent() -> "OrderStructureAgent":
+def create_openrouter_order_agent(
+    *, attempts: int = 1, quorum: int = 1
+) -> "OrderStructureAgent":
     """Build the production LangChain model configured for OpenRouter.
 
     The import is local so validation and unit tests do not require network
@@ -80,6 +82,7 @@ def create_openrouter_order_agent() -> "OrderStructureAgent":
     environment and raises a clear configuration error if it is absent.
     """
 
+    validate_voting_config(attempts=attempts, quorum=quorum)
     try:
         from langchain_openrouter import ChatOpenRouter
     except ImportError as error:  # pragma: no cover - depends on local setup
@@ -109,7 +112,11 @@ def create_openrouter_order_agent() -> "OrderStructureAgent":
             "Could not configure the OpenRouter model; ensure "
             "OPENROUTER_API_KEY is set"
         ) from error
-    return OrderStructureAgent(structured_model)
+    return OrderStructureAgent(
+        structured_model,
+        attempts=attempts,
+        quorum=quorum,
+    )
 
 
 class OrderStructureAgent:
@@ -118,13 +125,51 @@ class OrderStructureAgent:
     def __init__(
         self,
         structured_model: Runnable[LanguageModelInput, dict[str, Any]],
+        *,
+        attempts: int = 1,
+        quorum: int = 1,
     ) -> None:
+        validate_voting_config(attempts=attempts, quorum=quorum)
         self._model = structured_model
+        self._attempts = attempts
+        self._quorum = quorum
 
     def extract(self, raw_order: str) -> Order:
-        """Return one normalized order or fail without silently degrading."""
+        """Return the quorum result or fail without silently degrading."""
+
+        result = self.extract_vote(raw_order)
+        if result.value is not None:
+            return result.value
+        if result.attempts == 1 and result.last_error is not None:
+            raise result.last_error
+        raise NoQuorumError(
+            "order extraction did not reach quorum "
+            f"({result.quorum} required from {result.attempts} attempts)"
+        )
+
+    def extract_vote(self, raw_order: str) -> VotingResult[Order]:
+        """Run configured votes after applying the existing order boundary."""
 
         byte_count = _validate_raw_order(raw_order)
+        result = quorum_vote(
+            lambda: self._extract_once(raw_order),
+            attempts=self._attempts,
+            quorum=self._quorum,
+            label="order extraction",
+        )
+        logger.info(
+            "Order extraction vote complete: outcome=%s input_bytes=%d "
+            "valid_votes=%d rejected_votes=%d disagreement=%s duration_ms=%.1f",
+            "accepted" if result.value is not None else "no_quorum",
+            byte_count,
+            result.valid_votes,
+            result.rejected_votes,
+            result.disagreement,
+            result.elapsed_seconds * 1000,
+        )
+        return result
+
+    def _extract_once(self, raw_order: str) -> Order:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -132,42 +177,11 @@ class OrderStructureAgent:
                 "content": "RAW_ORDER_JSON:\n" + json.dumps(raw_order, ensure_ascii=False),
             },
         ]
-        started = time.perf_counter()
         try:
             output = self._model.invoke(messages)
         except Exception as error:
-            duration_ms = (time.perf_counter() - started) * 1000
-            logger.error(
-                "Order extraction failed: outcome=model_error input_bytes=%d "
-                "duration_ms=%.1f error=%s",
-                byte_count,
-                duration_ms,
-                error,
-            )
             raise RuntimeError(f"Order structure model failed: {error}") from error
-
-        try:
-            order = normalize_order_output(output, raw_order=raw_order)
-        except (TypeError, ValueError) as error:
-            duration_ms = (time.perf_counter() - started) * 1000
-            logger.error(
-                "Order extraction failed: outcome=invalid_output input_bytes=%d "
-                "duration_ms=%.1f error=%s",
-                byte_count,
-                duration_ms,
-                error,
-            )
-            raise
-
-        duration_ms = (time.perf_counter() - started) * 1000
-        logger.info(
-            "Order extraction complete: outcome=validated input_bytes=%d "
-            "duration_ms=%.1f order_id=%s",
-            byte_count,
-            duration_ms,
-            order.order_id,
-        )
-        return order
+        return normalize_order_output(output, raw_order=raw_order)
 
 
 def _validate_raw_order(raw_order: str) -> int:
