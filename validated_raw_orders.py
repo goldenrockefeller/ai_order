@@ -1,7 +1,7 @@
-"""Fetch and validate one immutable raw-order snapshot.
+"""Fetch and represent validated raw orders from the customer API.
 
 This module intentionally has no model, LangGraph, database, or query code.
-The caller must pass the returned snapshot to later stages rather than
+The caller must pass the returned orders to later stages rather than
 fetching the customer API again.
 """
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
-class OrderSnapshot:
+class ValidatedRawOrders:
     """The validated raw orders for one run.
 
     A tuple is used instead of the API's list so later code cannot mutate the
@@ -38,8 +38,8 @@ class OrderSnapshot:
         return len(self.raw_orders)
 
 
-def validate_orders_response(payload: Any) -> OrderSnapshot:
-    """Validate an API payload and return its immutable raw-order snapshot."""
+def validate_orders_response(payload: Any) -> ValidatedRawOrders:
+    """Validate an API payload and return its immutable raw orders."""
 
     if not isinstance(payload, dict):
         raise ValueError("API response root must be a JSON object")
@@ -63,7 +63,7 @@ def validate_orders_response(payload: Any) -> OrderSnapshot:
                 f"item {index} is invalid"
             )
 
-    return OrderSnapshot(raw_orders=tuple(raw_orders))
+    return ValidatedRawOrders(raw_orders=tuple(raw_orders))
 
 
 def _is_timeout(error: BaseException) -> bool:
@@ -77,13 +77,13 @@ def _error_text(error: BaseException) -> str:
     return str(error) or error.__class__.__name__
 
 
-def fetch_orders_snapshot(
+def fetch_validated_raw_orders(
     api_url: str = DEFAULT_API_URL,
     *,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     opener: Callable[..., Any] | None = None,
-) -> OrderSnapshot:
-    """Fetch ``/api/orders`` once, validate it, and return an immutable snapshot.
+) -> ValidatedRawOrders:
+    """Fetch ``/api/orders`` once and return validated, immutable raw orders.
 
     ``opener`` is injectable only to make transport behavior testable. The
     production default is :func:`urllib.request.urlopen`, and no query
@@ -188,8 +188,8 @@ def fetch_orders_snapshot(
         raise failure from error
 
     try:
-        snapshot = validate_orders_response(payload)
-        received_count = len(snapshot)
+        validated_orders = validate_orders_response(payload)
+        received_count = len(validated_orders)
     except ValueError as error:
         duration = time.perf_counter() - started
         if isinstance(payload, dict) and isinstance(payload.get("raw_orders"), list):
@@ -212,7 +212,7 @@ def fetch_orders_snapshot(
         duration * 1000,
         received_count,
     )
-    return snapshot
+    return validated_orders
 
 
 def _outcome_for(error: Exception) -> str:

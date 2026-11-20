@@ -10,7 +10,7 @@ against the source text, and returns normalized JSON.
 Customer API
     |
     v
-Validated snapshot
+Validated raw orders
     |
     v
 ChatOpenRouter (openai/gpt-oss-120b:exacto)
@@ -22,11 +22,21 @@ Grounding and field validation
 Normalization (state code and integer cents)
     |
     v
-JSON output
+SQLite orders
+    ^
+    | compact typed filter intent (never model-written SQL)
+Natural-language request -> Query Agent -> validation and normalization
 ```
 
-The model only extracts fields. Python validates the API envelope, rejects
-missing or ungrounded values, and performs all normalization.
+The models only extract fields and classify query meaning. Python validates the
+API envelope, rejects missing or ungrounded values, performs all normalization,
+and rejects unsupported query conditions instead of silently dropping them.
+
+Checkpoint 4 is implemented as a standalone `QueryAgent`. Its contract is
+`logic: all|any` plus typed field/operator/value conditions. This supports
+ordinary compound filters without reproducing SQL as a second language. Model
+values are preserved verbatim, and strict `over` (`gt`) remains distinct from
+inclusive `at least` (`gte`). Pipeline wiring is left for Checkpoint 5.
 
 ## Requirements
 
@@ -63,8 +73,8 @@ Run the agent in a second terminal:
 .\.venv\Scripts\python.exe main.py
 ```
 
-The agent fetches one snapshot, makes one structured model call per order, and
-prints the normalized records as JSON.
+The agent fetches and validates the raw orders once, makes one structured model
+call per order, and prints the normalized records as JSON.
 
 ## Test
 

@@ -1,8 +1,9 @@
 [run]
 source =
     database
-    snapshot
     order_extraction
+    query_agent
+    validated_raw_orders
 
 [report]
 show_missing = True

@@ -5,7 +5,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
+
+if TYPE_CHECKING:
+    from query_agent import FilterCondition, QueryFilter
 
 
 Operator = Literal["gt", "gte"]
@@ -84,8 +87,10 @@ def dollars_to_cents(amount: str | Decimal | int | float) -> int:
     return int(cents)
 
 
-def create_database() -> sqlite3.Connection:
-    """Create and seed a new in-memory order database."""
+def create_database(
+    orders: Sequence[Order] = SEED_ORDERS,
+) -> sqlite3.Connection:
+    """Create a new in-memory order database and insert ``orders``."""
 
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
@@ -101,7 +106,7 @@ def create_database() -> sqlite3.Connection:
           ON orders(state, total_cents);
         """
     )
-    insert_orders(connection, SEED_ORDERS)
+    insert_orders(connection, orders)
     return connection
 
 
@@ -170,6 +175,111 @@ def query_orders(
     ]
 
 
+_COLUMNS = {
+    "order_id": "order_id",
+    "buyer": "buyer",
+    "state": "state",
+    "total": "total_cents",
+}
+_SINGLE_VALUE_OPERATORS = {
+    "eq": "=",
+    "neq": "!=",
+    "gt": ">",
+    "gte": ">=",
+    "lt": "<",
+    "lte": "<=",
+}
+
+
+def _condition_values(condition: "FilterCondition") -> tuple[Any, ...]:
+    """Parse model-preserved values at the database execution boundary."""
+
+    values = condition.values
+    if not values or any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ValueError("filter values must contain non-empty strings")
+
+    if condition.field == "total":
+        return tuple(dollars_to_cents(value) for value in values)
+    if condition.field == "state":
+        normalized: list[str] = []
+        for value in values:
+            if len(value) != 2 or not value.isascii() or not value.isalpha():
+                raise ValueError("state filter values must be two-letter state codes")
+            normalized.append(value.upper())
+        return tuple(normalized)
+    return tuple(values)
+
+
+def _compile_condition(condition: "FilterCondition") -> tuple[str, tuple[Any, ...]]:
+    """Compile one typed condition from fixed SQL fragments and bound values."""
+
+    try:
+        column = _COLUMNS[condition.field]
+    except KeyError as error:
+        raise ValueError(f"unsupported filter field: {condition.field!r}") from error
+
+    values = _condition_values(condition)
+    if condition.operator == "contains":
+        if len(values) != 1 or condition.field not in ("order_id", "buyer"):
+            raise ValueError("contains requires one order_id or buyer value")
+        return f"instr({column}, ?) > 0", values
+
+    if condition.operator in ("in", "not_in"):
+        placeholders = ", ".join("?" for _ in values)
+        sql_operator = "IN" if condition.operator == "in" else "NOT IN"
+        return f"{column} {sql_operator} ({placeholders})", values
+
+    try:
+        sql_operator = _SINGLE_VALUE_OPERATORS[condition.operator]
+    except KeyError as error:
+        raise ValueError(
+            f"unsupported filter operator: {condition.operator!r}"
+        ) from error
+    if len(values) != 1:
+        raise ValueError(f"operator {condition.operator!r} requires one value")
+    if condition.field != "total" and condition.operator in ("gt", "gte", "lt", "lte"):
+        raise ValueError(
+            f"operator {condition.operator!r} is unsupported for field {condition.field!r}"
+        )
+    return f"{column} {sql_operator} ?", values
+
+
+def query_by_filter(
+    connection: sqlite3.Connection, query_filter: "QueryFilter"
+) -> list[Order]:
+    """Execute a compound typed filter without accepting model-written SQL."""
+
+    if query_filter.logic not in ("all", "any"):
+        raise ValueError("filter logic must be 'all' or 'any'")
+    if not query_filter.conditions:
+        raise ValueError("filter must contain at least one condition")
+
+    clauses: list[str] = []
+    parameters: list[Any] = []
+    for condition in query_filter.conditions:
+        clause, values = _compile_condition(condition)
+        clauses.append(clause)
+        parameters.extend(values)
+
+    joiner = " AND " if query_filter.logic == "all" else " OR "
+    statement = f"""
+        SELECT order_id, buyer, state, total_cents
+        FROM orders
+        WHERE {joiner.join(clauses)}
+        ORDER BY CAST(order_id AS INTEGER), order_id
+    """
+    rows = connection.execute(statement, parameters).fetchall()
+    return [
+        Order(
+            order_id=row["order_id"],
+            buyer=row["buyer"],
+            state=row["state"],
+            total_cents=row["total_cents"],
+        )
+        for row in rows
+    ]
+
+
 __all__ = [
     "Order",
     "OrderFilter",
@@ -178,5 +288,6 @@ __all__ = [
     "dollars_to_cents",
     "insert_order",
     "insert_orders",
+    "query_by_filter",
     "query_orders",
 ]

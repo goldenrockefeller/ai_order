@@ -1,3 +1,4 @@
 Flask>=3.1,<4
 langchain-openrouter==0.3.0
+langgraph>=1.0,<2
 python-dotenv>=1.0,<2

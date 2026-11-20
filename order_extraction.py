@@ -92,6 +92,7 @@ def create_openrouter_order_agent() -> "OrderStructureAgent":
         model = ChatOpenRouter(
             model=MODEL_NAME,
             temperature=0,
+            timeout=30_000,
             max_retries=2,
             openrouter_provider={"require_parameters": True},
         )
