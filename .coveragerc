@@ -1,0 +1,9 @@
+[run]
+source =
+    database
+    snapshot
+    order_extraction
+
+[report]
+show_missing = True
+fail_under = 80
