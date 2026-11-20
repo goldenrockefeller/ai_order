@@ -190,7 +190,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             query_agent=create_openrouter_query_agent(),
             fetch_orders=lambda: fetch_validated_raw_orders(DEFAULT_API_URL),
         )
-    except (ConnectionError, TimeoutError, RuntimeError, TypeError, ValueError) as error:
+    except (
+        ConnectionError,
+        TimeoutError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        sqlite3.Error,
+    ) as error:
         logger.error("Order pipeline failed: %s", error)
         return 1
 

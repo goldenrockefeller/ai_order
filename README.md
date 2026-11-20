@@ -23,20 +23,23 @@ Normalization (state code and integer cents)
     |
     v
 SQLite orders
-    ^
-    | compact typed filter intent (never model-written SQL)
-Natural-language request -> Query Agent -> validation and normalization
+    |
+    v
+Bound-parameter query compiler -> clean JSON
+
+Natural-language request -> Query Agent -> typed filter (never SQL) -> SQLite
 ```
 
 The models only extract fields and classify query meaning. Python validates the
 API envelope, rejects missing or ungrounded values, performs all normalization,
 and rejects unsupported query conditions instead of silently dropping them.
 
-Checkpoint 4 is implemented as a standalone `QueryAgent`. Its contract is
-`logic: all|any` plus typed field/operator/value conditions. This supports
-ordinary compound filters without reproducing SQL as a second language. Model
-values are preserved verbatim, and strict `over` (`gt`) remains distinct from
-inclusive `at least` (`gte`). Pipeline wiring is left for Checkpoint 5.
+LangGraph runs the fetch, extract, store, and query nodes in order. Its state
+holds one immutable API response and one parsed SQLite snapshot, so multiple
+requests in the same invocation do not refetch or re-extract. The `QueryAgent`
+returns `logic: all|any` plus typed field/operator/value conditions. Python
+parses field-specific values at execution time and combines fixed SQL fragments
+with bound parameters; the model never supplies SQL.
 
 ## Requirements
 
@@ -73,8 +76,20 @@ Run the agent in a second terminal:
 .\.venv\Scripts\python.exe main.py
 ```
 
-The agent fetches and validates the raw orders once, makes one structured model
-call per order, and prints the normalized records as JSON.
+With no arguments, the agent runs the sample Ohio/over-$500 request. It fetches
+and validates the raw orders once, makes one structured model call per order,
+stores the valid records, and prints the matching records as JSON. If any order
+cannot be extracted, the remaining records are still queried and the output
+contains `"incomplete": true` and `"failedExtractions"`.
+
+Pass quoted requests as arguments to answer several questions from the same
+snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe main.py `
+  "Ohio orders over $500" `
+  "Orders for Sarah or shipped to Washington"
+```
 
 ## Test
 
