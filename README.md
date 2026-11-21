@@ -1,4 +1,4 @@
-# Raft Order Agent
+# Order Agent
 
 A small Python agent that fetches unstructured customer orders, extracts each
 order with a schema-constrained language model, validates the extracted values
